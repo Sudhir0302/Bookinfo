@@ -1,74 +1,239 @@
-import { Image, StyleSheet, Platform } from 'react-native';
-
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
+import React, { useState } from 'react';
+import { Linking, Dimensions } from 'react-native';
+import {
+  StyleSheet,
+  TextInput,
+  FlatList,
+  Image,
+  View,
+  Modal,
+  TouchableOpacity,
+  Button,
+  ScrollView,
+} from 'react-native';
 import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+
+const { width, height } = Dimensions.get('window');
+
+interface VolumeInfo {
+  title: string;
+  authors?: string[];
+  description?: string;
+  imageLinks?: { thumbnail: string };
+  previewLink?: string;
+  buyLink?: string;
+}
+
+interface Book {
+  id: string;
+  volumeInfo: VolumeInfo;
+}
 
 export default function HomeScreen() {
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [books, setBooks] = useState<Book[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [selectedBook, setSelectedBook] = useState<Book | null>(null);
+  const [modalVisible, setModalVisible] = useState<boolean>(false);
+
+  const fetchBooks = async () => {
+    if (!searchQuery.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(searchQuery)}`
+      );
+      const data = await response.json();
+      if (data.items) {
+        setBooks(data.items as Book[]);
+      } else {
+        setBooks([]);
+      }
+    } catch (error) {
+      console.error('Error fetching books:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBookPress = (book: Book) => {
+    setSelectedBook(book);
+    setModalVisible(true);
+  };
+
+  const renderBookItem = ({ item }: { item: Book }) => {
+    const { title, imageLinks } = item.volumeInfo;
+    const thumbnail = imageLinks?.thumbnail;
+
+    return (
+      <TouchableOpacity onPress={() => handleBookPress(item)}>
+        <View style={styles.bookItem}>
+          {thumbnail && <Image source={{ uri: thumbnail }} style={styles.bookImage} />}
+          <ThemedText type="title" style={styles.bookTitle}>
+            {title}
+          </ThemedText>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderBookDetails = () => {
+    if (!selectedBook) return null;
+
+    const { title, authors, description, previewLink, buyLink } =
+      selectedBook.volumeInfo;
+    const thumbnail = selectedBook.volumeInfo.imageLinks?.thumbnail;
+
+    return (
+      <ScrollView contentContainerStyle={styles.modalContent}>
+        {thumbnail && <Image source={{ uri: thumbnail }} style={styles.modalImage} />}
+        <ThemedText type="title" style={styles.modalTitle}>
+          {title}
+        </ThemedText>
+        <ThemedText style={styles.modalAuthor}>
+          {authors ? `By: ${authors.join(', ')}` : 'Author info unavailable'}
+        </ThemedText>
+        <ThemedText style={styles.modalDescription}>
+          {description || 'No description available'}
+        </ThemedText>
+        <View style={styles.buttonContainer}>
+          {previewLink && (
+            <Button
+              title="Preview"
+              onPress={() => {
+                Linking.openURL(previewLink).catch((err) =>
+                  console.error('Failed to open preview link', err)
+                );
+              }}
+            />
+          )}
+          {buyLink && (
+            <Button
+              title="Buy"
+              onPress={() => {
+                Linking.openURL(buyLink).catch((err) =>
+                  console.error('Failed to open buy link', err)
+                );
+              }}
+            />
+          )}
+        </View>
+        <Button title="Close" onPress={() => setModalVisible(false)} />
+      </ScrollView>
+    );
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <TextInput
+        style={styles.searchInput}
+        placeholder="Search for books"
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+      />
+      <Button title="Search" onPress={fetchBooks} />
+      <FlatList
+        data={books}
+        keyExtractor={(item) => item.id}
+        renderItem={renderBookItem}
+        contentContainerStyle={styles.bookList}
+      />
+      <Modal
+        visible={modalVisible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>{renderBookDetails()}</View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  searchInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginBottom: 16,
+    marginTop: 40,
+    backgroundColor: '#F9F9F9',
+    color: '#000',
+  },
+  bookList: {
+    paddingBottom: 16,
+  },
+  bookItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 8,
+    backgroundColor: '#F0F0F0',
   },
-  stepContainer: {
-    gap: 8,
+  bookImage: {
+    width: 50,
+    height: 75,
+    marginRight: 12,
+    borderRadius: 4,
+  },
+  bookTitle: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: width * 0.9,
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+  },
+  modalImage: {
+    width: '60%',
+    height: height * 0.3,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  modalAuthor: {
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+    color: '#555',
+  },
+  modalDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
+    color: '#666',
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    width: '100%',
+    marginBottom: 16,
   },
 });
