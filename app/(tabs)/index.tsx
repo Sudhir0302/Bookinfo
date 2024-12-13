@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Linking, Dimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
 import {
+  Linking,
+  Dimensions,
+  Share,
   StyleSheet,
   TextInput,
   FlatList,
@@ -22,6 +24,7 @@ interface VolumeInfo {
   imageLinks?: { thumbnail: string };
   previewLink?: string;
   buyLink?: string;
+  infoLink?: string;
 }
 
 interface Book {
@@ -35,6 +38,10 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState<boolean>(false);
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
   const [modalVisible, setModalVisible] = useState<boolean>(false);
+  const [favorites, setFavorites] = useState<Book[]>([]); 
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+  const [showFavorites, setShowFavorites] = useState<boolean>(false); 
+  const [showSearchResults, setShowSearchResults] = useState<boolean>(false); 
 
   const fetchBooks = async () => {
     if (!searchQuery.trim()) return;
@@ -46,6 +53,7 @@ export default function HomeScreen() {
       const data = await response.json();
       if (data.items) {
         setBooks(data.items as Book[]);
+        setShowSearchResults(true); 
       } else {
         setBooks([]);
       }
@@ -56,14 +64,65 @@ export default function HomeScreen() {
     }
   };
 
+  const fetchDefaultBooks = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        'https://www.googleapis.com/books/v1/volumes?q=bestsellers'
+      );
+      const data = await response.json();
+      if (data.items) {
+        setBooks(data.items as Book[]);
+        setSearchQuery("");
+        setShowSearchResults(false); 
+      } else {
+        setBooks([]);
+      }
+    } catch (error) {
+      console.error('Error fetching default books:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDefaultBooks();
+  }, []);
+
   const handleBookPress = (book: Book) => {
     setSelectedBook(book);
     setModalVisible(true);
   };
 
+  const handleShare = async () => {
+    if (selectedBook) {
+      const { title, authors, previewLink, buyLink } = selectedBook.volumeInfo;
+      const message = `Check out this book: ${title} by ${authors?.join(', ')}`;
+      try {
+        await Share.share({
+          message: `${message}\nPreview: ${previewLink || 'N/A'}\nBuy: ${buyLink || 'N/A'}`,
+        });
+      } catch (error) {
+        console.error('Error sharing book:', error);
+      }
+    }
+  };
+
+  const handleFavorite = (book: Book) => {
+    setFavorites((prevFavorites) => {
+      if (prevFavorites.some((fav) => fav.id === book.id)) {
+        return prevFavorites.filter((fav) => fav.id !== book.id); 
+      } else {
+        return [...prevFavorites, book]; 
+      }
+    });
+  };
+
   const renderBookItem = ({ item }: { item: Book }) => {
     const { title, imageLinks } = item.volumeInfo;
     const thumbnail = imageLinks?.thumbnail;
+
+    const isFavorite = favorites.some((fav) => fav.id === item.id);
 
     return (
       <TouchableOpacity onPress={() => handleBookPress(item)}>
@@ -72,6 +131,10 @@ export default function HomeScreen() {
           <ThemedText type="title" style={styles.bookTitle}>
             {title}
           </ThemedText>
+          <Button
+            title={isFavorite ? '❤️' : '🤍'}
+            onPress={() => handleFavorite(item)}
+          />
         </View>
       </TouchableOpacity>
     );
@@ -80,8 +143,7 @@ export default function HomeScreen() {
   const renderBookDetails = () => {
     if (!selectedBook) return null;
 
-    const { title, authors, description, previewLink, buyLink } =
-      selectedBook.volumeInfo;
+    const { title, authors, description, previewLink, buyLink, infoLink } = selectedBook.volumeInfo;
     const thumbnail = selectedBook.volumeInfo.imageLinks?.thumbnail;
 
     return (
@@ -97,11 +159,11 @@ export default function HomeScreen() {
           {description || 'No description available'}
         </ThemedText>
         <View style={styles.buttonContainer}>
-          {previewLink && (
+          {infoLink && (
             <Button
               title="Preview"
               onPress={() => {
-                Linking.openURL(previewLink).catch((err) =>
+                Linking.openURL(infoLink).catch((err) =>
                   console.error('Failed to open preview link', err)
                 );
               }}
@@ -117,27 +179,65 @@ export default function HomeScreen() {
               }}
             />
           )}
+          {previewLink && (
+            <Button
+              title="Read"
+              onPress={() => {
+                Linking.openURL(previewLink).catch((err) =>
+                  console.error('Failed to open reading link', err)
+                );
+              }}
+            />
+          )}
+          <Button title="Share" onPress={handleShare} />
         </View>
         <Button title="Close" onPress={() => setModalVisible(false)} />
       </ScrollView>
     );
   };
 
+  const toggleDarkMode = () => {
+    setIsDarkMode((prevMode) => !prevMode);
+  };
+
+  const toggleFavoritesView = () => {
+    setShowFavorites(!showFavorites);
+  };
+
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.searchInput}
-        placeholder="Search for books"
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-      />
-      <Button title="Search" onPress={fetchBooks} />
-      <FlatList
-        data={books}
-        keyExtractor={(item) => item.id}
-        renderItem={renderBookItem}
-        contentContainerStyle={styles.bookList}
-      />
+    <View style={[styles.container, isDarkMode && styles.darkContainer]}>
+      <View style={styles.topBar}>
+        <TextInput
+          style={[styles.searchInput, isDarkMode && styles.darkInput]}
+          placeholder="Search for books"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        <Button title="Search" onPress={fetchBooks} />
+        {showSearchResults && <Button title="Back" onPress={fetchDefaultBooks} />}
+      </View>
+
+      <View style={styles.topBarButtons}>
+        <Button title={`Switch to ${isDarkMode ? 'Light' : 'Dark'} Mode`} onPress={toggleDarkMode} />
+        <Button title="View Favorites" onPress={toggleFavoritesView} />
+      </View>
+
+      {showFavorites ? (
+        <FlatList
+          data={favorites}
+          keyExtractor={(item) => item.id}
+          renderItem={renderBookItem}
+          contentContainerStyle={styles.bookList}
+        />
+      ) : (
+        <FlatList
+          data={books}
+          keyExtractor={(item) => item.id}
+          renderItem={renderBookItem}
+          contentContainerStyle={styles.bookList}
+        />
+      )}
+
       <Modal
         visible={modalVisible}
         transparent={true}
@@ -156,16 +256,22 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: '#FFFFFF',
   },
+  darkContainer: {
+    backgroundColor: '#333',
+  },
   searchInput: {
     borderWidth: 1,
     borderColor: '#ccc',
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    marginBottom: 16,
-    marginTop: 40,
     backgroundColor: '#F9F9F9',
     color: '#000',
+    width: 200,
+  },
+  darkInput: {
+    backgroundColor: '#555',
+    color: '#FFF',
   },
   bookList: {
     paddingBottom: 16,
@@ -199,7 +305,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: width * 0.9,
-    backgroundColor: '#FFF',
+    backgroundColor: '#123',
     borderRadius: 8,
     padding: 16,
     shadowColor: '#000',
@@ -207,33 +313,38 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
   },
   modalImage: {
-    width: '60%',
-    height: height * 0.3,
-    alignSelf: 'center',
+    width: 120,
+    height: 180,
     marginBottom: 16,
+    borderRadius: 4,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    textAlign: 'center',
     marginBottom: 8,
   },
   modalAuthor: {
     fontSize: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-    color: '#555',
+    marginBottom: 16,
   },
   modalDescription: {
     fontSize: 14,
-    textAlign: 'center',
     marginBottom: 16,
-    color: '#666',
   },
   buttonContainer: {
+    marginBottom: 16,
+  },
+  topBar: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    width: '100%',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop:30
+  },
+  topBarButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
 });
+
