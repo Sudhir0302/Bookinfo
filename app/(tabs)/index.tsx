@@ -134,7 +134,7 @@ export default function HomeScreen() {
           <Button
             title={isFavorite ? '❤️' : '🤍'}
             onPress={() => handleFavorite(item)}
-          />
+          />y
         </View>
       </TouchableOpacity>
     );
